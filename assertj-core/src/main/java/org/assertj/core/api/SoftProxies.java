@@ -22,6 +22,13 @@ import static org.assertj.core.api.ClassLoadingStrategyFactory.classLoadingStrat
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Modifier;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import org.assertj.core.api.ClassLoadingStrategyFactory.ClassLoadingStrategyPair;
@@ -239,6 +246,93 @@ class SoftProxies {
 
     return publicMethods.or(forProxyProtectedMethods);
 
+  }
+
+  @SuppressWarnings("unchecked")
+  <A> A createAssertProviderProxy(AssertProvider<A> assertProvider) {
+    A assertInstance = assertProvider.assertThat();
+    if (!(assertInstance instanceof AbstractAssert)) {
+      throw new IllegalArgumentException("The provided Assert instance must be an instance of " + AbstractAssert.class);
+    }
+    Class<? extends Assert<?, ?>> assertClass = (Class<? extends Assert<?, ?>>) assertInstance.getClass();
+    Object actual = ((AbstractAssert<?, ?>) assertInstance).actual;
+    Class<?> proxyClass = createSoftAssertionProxyClass(assertClass);
+    A proxiedAssert = (A) newInstance(proxyClass, actual);
+    ((AssertJProxySetup) proxiedAssert).assertj$setup(new ProxifyMethodChangingTheObjectUnderTest(this), collector);
+    return proxiedAssert;
+  }
+
+  private static Object newInstance(Class<?> proxyClass, Object actual) {
+    Map<Predicate<Class<?>>, Supplier<?>> parameters = new LinkedHashMap<>();
+    if (actual != null) {
+      parameters.put((type) -> type.isAssignableFrom(actual.getClass()), () -> actual);
+    } else {
+      parameters.put((type) -> !type.isPrimitive(), () -> null);
+    }
+    InstanceSupplier instanceSupplier = new InstanceSupplier(proxyClass, parameters);
+    return instanceSupplier.get();
+  }
+
+  private static final class InstanceSupplier implements Supplier<Object> {
+
+    private static final Comparator<Constructor<?>> CONSTRUCTOR_COMPARATOR = Comparator
+                                                                                       .<Constructor<?>> comparingInt(Constructor::getParameterCount)
+                                                                                       .reversed();
+
+    private final Class<?> proxyClass;
+
+    private final Map<Predicate<Class<?>>, Supplier<?>> parameters;
+
+    private InstanceSupplier(Class<?> proxyClass, Map<Predicate<Class<?>>, Supplier<?>> parameters) {
+      this.proxyClass = proxyClass;
+      this.parameters = parameters;
+    }
+
+    @Override
+    public Object get() {
+      Constructor<?>[] constructors = proxyClass.getDeclaredConstructors();
+      Arrays.sort(constructors, CONSTRUCTOR_COMPARATOR);
+      for (Constructor<?> constructor : constructors) {
+        Object[] args = getArgs(constructor.getParameterTypes());
+        if (args != null) {
+          try {
+            if (!Modifier.isPublic(constructor.getModifiers())) {
+              constructor.setAccessible(true);
+            }
+            return constructor.newInstance(args);
+          } catch (Exception ex) {
+            throw new IllegalArgumentException("Unable to instantiate " + this.proxyClass, ex);
+          }
+        }
+      }
+      throw new IllegalArgumentException("Class [" + proxyClass.getName() + "] has no suitable constructor.\n"
+                                         + "SoftAssertions proxy requires a constructor: (ACTUAL actual).\n"
+                                         + "Found: " + Arrays.toString(constructors));
+    }
+
+    private Object[] getArgs(Class<?>[] parameterTypes) {
+      if (parameterTypes.length != this.parameters.size()) {
+        return null;
+      }
+      Object[] args = new Object[parameterTypes.length];
+      for (int i = 0; i < parameterTypes.length; i++) {
+        Supplier<?> parameter = getParameter(parameterTypes[i]);
+        if (parameter == null) {
+          return null;
+        }
+        args[i] = parameter.get();
+      }
+      return args;
+    }
+
+    private Supplier<?> getParameter(Class<?> parameterType) {
+      for (Map.Entry<Predicate<Class<?>>, Supplier<?>> entry : this.parameters.entrySet()) {
+        if (entry.getKey().test(parameterType)) {
+          return entry.getValue();
+        }
+      }
+      return null;
+    }
   }
 
 }

@@ -48,6 +48,11 @@ public abstract class AbstractSoftAssertions extends DefaultAssertionErrorCollec
     return proxies.createSoftAssertionProxy(assertClass, actualClass, actual);
   }
 
+  @Override
+  public <A> A proxy(AssertProvider<A> assertProvider) {
+    return proxies.createAssertProviderProxy(assertProvider);
+  }
+
   /**
    * Fails with the given message.
    *
