@@ -45,6 +45,18 @@ public interface SoftAssertionsProvider extends AssertionErrorCollector {
                                                                              ACTUAL actual);
 
   /**
+   * Creates a proxied assertion class of the provided {@link Assert}. The returned value
+   * is an assertion object compatible with the supplied assertion class, but
+   * instead of throwing errors, it will collect them and store.
+   *
+   * @param assertProvider the assert provider that creates its own assert
+   * @param <A> The type of the assertion class
+   * @return A proxied assertion class for the provided assert object.
+   * @see AssertProvider
+   */
+  <A> A proxy(AssertProvider<A> assertProvider);
+
+  /**
    * Verifies that no soft assertions have failed.
    *
    * @throws MultipleFailuresError if possible or SoftAssertionError if any proxied assertion objects threw an {@link AssertionError}

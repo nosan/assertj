@@ -22,6 +22,10 @@ import static org.assertj.core.api.ClassLoadingStrategyFactory.classLoadingStrat
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.assertj.core.api.ClassLoadingStrategyFactory.ClassLoadingStrategyPair;
@@ -239,6 +243,60 @@ class SoftProxies {
 
     return publicMethods.or(forProxyProtectedMethods);
 
+  }
+
+  @SuppressWarnings("unchecked")
+  <A> A createAssertProviderProxy(AssertProvider<A> assertProvider) {
+    A assertInstance = assertProvider.assertThat();
+    if (!(assertInstance instanceof AbstractAssert)) {
+      throw new IllegalArgumentException("The provided Assert instance must be an instance of " + AbstractAssert.class);
+    }
+    Class<? extends Assert<?, ?>> assertClass = (Class<? extends Assert<?, ?>>) assertInstance.getClass();
+    Object actual = ((AbstractAssert<?, ?>) assertInstance).actual;
+    Class<?> proxyClass = createSoftAssertionProxyClass(assertClass);
+    A proxiedAssert = (A) new InstanceSupplier(proxyClass, actual).get();
+    ((AssertJProxySetup) proxiedAssert).assertj$setup(new ProxifyMethodChangingTheObjectUnderTest(this), collector);
+    return proxiedAssert;
+  }
+
+  private static final class InstanceSupplier implements Supplier<Object> {
+
+    private final Class<?> proxyClass;
+
+    private final Object actual;
+
+    private InstanceSupplier(Class<?> proxyClass, Object actual) {
+      this.actual = actual;
+      this.proxyClass = proxyClass;
+    }
+
+    @Override
+    public Object get() {
+      List<Constructor<?>> constructors = Arrays.stream(proxyClass.getConstructors())
+                                                .filter(constructor -> constructor.getParameterCount() == 1)
+                                                .collect(Collectors.toList());
+      try {
+        if (this.actual == null) {
+          for (Constructor<?> constructor : constructors) {
+            Class<?> type = constructor.getParameterTypes()[0];
+            if (!type.isPrimitive()) {
+              return constructor.newInstance((Object) null);
+            }
+          }
+        } else {
+          for (Constructor<?> constructor : constructors) {
+            Class<?> type = constructor.getParameterTypes()[0];
+            if (type.isAssignableFrom(this.actual.getClass())) {
+              return constructor.newInstance(this.actual);
+            }
+          }
+        }
+      } catch (Exception ex) {
+        throw new IllegalArgumentException("Unable to instantiate " + this.proxyClass, ex);
+      }
+      throw new IllegalArgumentException("Class [" + proxyClass.getName() + "] has no suitable constructor.\n"
+                                         + "SoftAssertions proxy requires a constructor: (ACTUAL actual).");
+    }
   }
 
 }

@@ -1125,4 +1125,17 @@ public interface Java6StandardSoftAssertionsProvider extends SoftAssertionsProvi
     return assertThatExceptionOfType(IndexOutOfBoundsException.class);
   }
 
+  /**
+   * Creates a new, proxied instance of a provided {@link Assert}.
+   *
+   * @param assertProvider the assert provider that creates its own assert
+   * @param <A> The type of the assertion class
+   * @return the associated soft proxied {@link Assert} of the provided assert.
+   * @since 3.27.0
+   * @see AssertProvider
+   */
+  default <A> A assertThat(AssertProvider<A> assertProvider) {
+    return proxy(assertProvider);
+  }
+
 }
